@@ -2,6 +2,7 @@ import hashlib, re
 from datetime import datetime, timedelta, date
 from flask import Flask, jsonify, request, send_from_directory
 from store import Store
+import news
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 db = Store()
@@ -19,6 +20,11 @@ BANKS = [  # (id, название, цвет1, цвет2, акцент) — ст
 BANK_MAP = {b[0]: b for b in BANKS}
 
 def err(msg, code=400): return jsonify({"error": msg}), code
+
+def label(name):
+    """Для отображения: имя и инициал фамилии (минимум данных), например «Иван П.»"""
+    p = name.strip().split()
+    return (p[0][:20].capitalize() + (" " + p[1][0].upper() + "." if len(p) > 1 else "")) if p else ""
 
 def pseudo(name):
     """Третьи лица хранятся только как псевдоним (хеш с солью), без ФИО."""
@@ -41,9 +47,9 @@ def senders_report(txs, d_from=None, d_to=None):
     first = {}
     for t in allinc: first.setdefault(t["sender"], t["date"])
     inc = [t for t in allinc if (not d_from or t["date"] >= d_from) and (not d_to or t["date"] <= d_to)]
-    by = {}
-    for t in inc: by.setdefault(t["sender"], []).append(t)
-    rows = [{"alias": "Отправитель " + k, "count": len(v), "sum": round(sum(x["amount"] for x in v), 2),
+    by, lab = {}, {}
+    for t in inc: by.setdefault(t["sender"], []).append(t); lab.setdefault(t["sender"], t.get("sender_label"))
+    rows = [{"alias": lab.get(k) or "Отправитель " + k, "code": k[:4], "count": len(v), "sum": round(sum(x["amount"] for x in v), 2),
              "last": max(x["date"] for x in v), "new": bool(d_from and first[k] >= d_from) if d_from else False,
              "history": [{"date": x["date"], "time": x["time"], "amount": x["amount"]} for x in v[-10:]]} for k, v in by.items()]
     rows.sort(key=lambda r: -r["sum"])
@@ -175,7 +181,7 @@ def add_tx(cid):
     if typ == "in" and not sender: return err("Укажите отправителя (хранится только как псевдоним)")
     op_id = (j.get("op_id") or "").strip()[:60]
     t = {"id": db.new_id(), "card": cid, "type": typ, "amount": amount, "date": j["date"], "time": j["time"],
-         "sender": pseudo(sender) if typ == "in" else "", "sender_bank": (j.get("sender_bank") or "")[:40], "op_id": op_id,
+         "sender": pseudo(sender) if typ == "in" else "", "sender_label": label(sender) if typ == "in" else "", "sender_bank": (j.get("sender_bank") or "")[:40], "op_id": op_id,
          "comment": (j.get("comment") or "")[:300], "deal": (j.get("deal") or "")[:60], "doc": bool(j.get("doc")),
          "refund": bool(j.get("refund")), "fee": max(0, float(j.get("fee") or 0)) if str(j.get("fee") or "0").replace(".", "", 1).isdigit() else 0}
     with db.lock:
@@ -192,6 +198,24 @@ def del_tx(tid):
         t = next((x for x in db.data["tx"] if x["id"] == tid), None)
         if not t: return err("Не найдено", 404)
         db.data["tx"].remove(t); db.log("tx_delete", f"{t['type']} {t['amount']} {t['card']}"); db.save()
+    return jsonify({"ok": True})
+
+@app.get("/api/news")
+def news_api():
+    items, errs = news.get_news()
+    cat, q, fav = request.args.get("cat"), (request.args.get("q") or "").lower(), request.args.get("fav") == "1"
+    favs = set(db.data.setdefault("fav_news", []))
+    out = [{**i, "fav": i["link"] in favs} for i in items
+           if (not cat or cat in i["cats"]) and (not q or q in (i["title"] + " " + i["summary"]).lower()) and (not fav or i["link"] in favs)]
+    return jsonify({"items": out[:80], "errors": errs})
+
+@app.post("/api/news/fav")
+def news_fav():
+    link = (request.get_json(silent=True) or {}).get("link", "")
+    if not link.startswith("http"): return err("Некорректная ссылка")
+    with db.lock:
+        f = db.data.setdefault("fav_news", [])
+        f.remove(link) if link in f else f.append(link); db.save()
     return jsonify({"ok": True})
 
 @app.get("/api/audit")
