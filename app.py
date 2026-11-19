@@ -8,7 +8,7 @@ db = Store()
 
 BANKS = [  # (id, название, цвет1, цвет2, акцент) — стилизация, без фирменных логотипов
  ("tbank","Т-Банк","#1c1c1e","#3a3a3c","#ffdd2d"),("sber","Сбербанк","#0b8f3c","#35c46a","#d8ffe4"),
- ("alfa","Альфа-Банк","#1a1a1a","#ef3124","#ffffff"),("ozon","Ozon Банк","#0a3cff","#2d9bff","#ffffff"),
+ ("alfa","Альфа-Банк","#d6101c","#ff2d2d","#ffffff"),("ozon","Ozon Банк","#0a3cff","#2d9bff","#ffffff"),
  ("wb","WB Банк","#6d1fd1","#c026d3","#ffffff"),("vtb","ВТБ","#0a2aa8","#1f6bff","#ffffff"),
  ("gpb","Газпромбанк","#0b3c8a","#2b7de0","#ffffff"),("sovcom","Совкомбанк","#d4145a","#ff5c8a","#ffffff"),
  ("raif","Райффайзенбанк","#2b2b2b","#ffe600","#ffffff"),("rshb","Россельхозбанк","#0d6b3a","#9bcf2e","#ffffff"),

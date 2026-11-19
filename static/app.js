@@ -14,14 +14,16 @@ function topbar(title,sub,extra=''){const h=new Date().getHours(),g=h<6?'Доб�
  return `<div class="top"><div><h1>${title}</h1><small>${sub||g+' · '+new Date().toLocaleString('ru-RU',{weekday:'long',day:'numeric',month:'long',hour:'2-digit',minute:'2-digit'})}</small></div>
  <div class="row">${extra}<button class="gbtn icon" data-act="hide" title="Скрыть баланс"><svg class="ic"><use href="#i-eye"/></svg></button><button class="gbtn icon" data-act="theme" title="Тема"><svg class="ic"><use href="#i-sun"/></svg></button></div></div>`}
 
-function cardHTML(c,i=0,big=false){const b=bank(c.bank);
- return `<div class="bcard ${big?'big':''}" data-id="${esc(c.id)}" style="--c1:${b.c1};--c2:${b.c2};--ac:${b.ac};animation-delay:${i*70}ms">
- ${c.risk!==undefined?`<span class="rk r${c.risk_code}"><i></i>${esc(c.risk)}</span>`:''}
- <div class="bn">${esc(c.bank_name)}</div><svg class="chip"><use href="#i-chip"/></svg>
- <div class="num">•••• ${esc(c.last4)}</div><div class="bal">${money(c.balance??0,c.currency)}</div><div class="sys">${esc(c.system)}</div></div>`}
+function cardHTML(c,i=0,big=false){const b=bank(c.bank),a=!big,sty=`--c1:${b.c1};--c2:${b.c2};--ac:${b.ac};animation-delay:${i*70}ms`;
+ const tag=a?`a href="#/card/${esc(c.id)}"`:'div';
+ return `<${tag} class="bcard b-${esc(c.bank)} ${big?'big':''}" style="${sty}"><div class="inner">
+ <div class="face front"><i class="deco"></i>${c.risk!==undefined?`<span class="rk r${c.risk_code}"><i></i>${esc(c.risk)}</span>`:''}
+ <div class="bn">${esc(c.bank_name)}</div><div class="chip"></div>
+ <div class="num">•••• •••• •••• ${esc(c.last4)}</div><div class="hold">${esc(c.title)}</div><div class="sys">${esc(c.system)}</div></div>
+ <div class="face back"><div class="mag"></div><div class="sig">Данные карты не хранятся</div><div class="bk">P2P Guardian. Полный номер, CVV и PIN не вводятся и не сохраняются.</div></div></div></${a?'a':'div'}>`}
 function tilt(root){root.querySelectorAll('.bcard').forEach(el=>{
  el.onmousemove=e=>{const r=el.getBoundingClientRect(),x=(e.clientX-r.left)/r.width,y=(e.clientY-r.top)/r.height;
-  el.style.transform=`rotateY(${(x-.5)*16}deg) rotateX(${(.5-y)*16}deg) scale(1.03)`;el.style.setProperty('--mx',x*100+'%');el.style.setProperty('--my',y*100+'%')};
+  el.style.transform=`perspective(900px) rotateY(${(x-.5)*16}deg) rotateX(${(.5-y)*16}deg) scale(1.03)`;el.style.setProperty('--mx',x*100+'%');el.style.setProperty('--my',y*100+'%')};
  el.onmouseleave=()=>el.style.transform='';})}
 function chartHTML(ch){const m=Math.max(1,...ch.flatMap(x=>[x.in,x.out]));
  return `<div class="chart">${ch.map(x=>`<div title="${x.d}: +${x.in} / -${x.out}"><span style="display:flex;gap:2px;align-items:flex-end;height:120px"><i style="height:${x.in/m*100}%;width:10px"></i><i class="o" style="height:${x.out/m*100}%;width:10px"></i></span>${x.d}</div>`).join('')}</div>
@@ -57,7 +59,7 @@ async function cardPage(id){
   ${r.factors.map(f=>`<div class="rf"><span class="rk r${f.level}" style="background:none;padding:0"><i></i></span><div><b>${esc(f.name)}</b> <span class="mut">· ${RK[f.level]}</span><p>${esc(f.why)}</p></div></div>`).join('')}<p class="note">${esc(r.note)}</p></div>`}
  app.innerHTML=topbar(esc(c.title),esc(c.bank_name)+' · •••• '+esc(c.last4),`<a href="#/" class="gbtn icon"><svg class="ic"><use href="#i-back"/></svg></a><button class="gbtn danger icon" data-del-card="${esc(c.id)}"><svg class="ic"><use href="#i-trash"/></svg></button>`)
  +cardHTML({...c,...s,balance:s.balance,risk:d.risk.level,risk_code:d.risk.code},0,true)
- +`<div class="tabs">${TABS.map(t=>`<button class="gbtn sm ${tab===t[0]?'on':''}" data-tab="${t[0]}">${t[1]}</button>`).join('')}</div>`+body;
+ +`<p class="note" style="text-align:center;margin:0 0 14px">Нажмите на карту, чтобы перевернуть</p><div class="tabs">${TABS.map(t=>`<button class="gbtn sm ${tab===t[0]?'on':''}" data-tab="${t[0]}">${t[1]}</button>`).join('')}</div>`+body;
  tilt(app)}
 
 function openModal(html){const m=$('#modal');m.querySelector('.sheet').innerHTML=html;m.hidden=false;return m.querySelector('.sheet')}
@@ -89,13 +91,13 @@ async function route(){const h=location.hash||'#/';document.querySelectorAll('[d
  try{if(!BANKS.length)BANKS=await api('/api/banks');
   if(h.startsWith('#/card/'))await cardPage(h.slice(7));else if(h==='#/cards')await cards();else await home();
   document.body.classList.toggle('hide',hidden)}catch(e){app.innerHTML=`<div class="glass panel empty">${esc(e.message)}</div>`}}
-document.addEventListener('click',async e=>{const t=e.target.closest('button,a,[data-id]');if(!t)return;const d=t.dataset;
+document.addEventListener('click',async e=>{const t=e.target.closest('button,a,.bcard');if(!t)return;const d=t.dataset;
  if(d.act==='theme')theme();else if(d.act==='hide'){hidden=!hidden;document.body.classList.toggle('hide',hidden)}
  else if(d.act==='add-card')addCardModal();else if(d.act==='close')closeModal();
  else if(d.act==='add-tx')addTxModal(location.hash.slice(7),d.type);
  else if(d.tab){tab=d.tab;route()}else if(d.range){range=d.range;route()}
  else if(d.del){if(confirm('Удалить операцию? Действие попадёт в журнал.')){await api('/api/tx/'+d.del,{method:'DELETE'});route()}}
  else if(d.delCard){if(confirm('Удалить карту и все её операции?')){await api('/api/cards/'+d.delCard,{method:'DELETE'});location.hash='#/'}}
- else if(d.id&&t.classList.contains('bcard')&&!location.hash.startsWith('#/card/')){tab='overview';location.hash='#/card/'+d.id}});
+ else if(t.classList.contains('bcard')){if(t.tagName==='A'){tab='overview';range='30'}else t.classList.toggle('flip')}});
 $('#modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal()});
 addEventListener('hashchange',route);route();
