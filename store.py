@@ -4,7 +4,7 @@ import json, os, threading, uuid, time
 class Store:
     def __init__(self, path="data.json"):
         self.path, self.lock = path, threading.RLock()
-        self.data = {"cards": [], "tx": [], "audit": [], "salt": uuid.uuid4().hex}
+        self.data = {"cards": [], "tx": [], "audit": [], "incidents": [], "deals": [], "fav_news": [], "salt": uuid.uuid4().hex}
         if os.path.exists(path):
             with open(path, encoding="utf-8") as f:
                 self.data.update(json.load(f))

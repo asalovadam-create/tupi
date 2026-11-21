@@ -12,7 +12,8 @@ FEEDS = [("Банк России", "https://www.cbr.ru/rss/RssPress"),
          ("Ведомости", "https://www.vedomosti.ru/rss/news"),
          ("Banki.ru", "https://www.banki.ru/xml/news.rss"),
          ("Интерфакс", "https://www.interfax.ru/rss.asp"),
-         ("Forklog", "https://forklog.com/feed")]
+         ("Forklog", "https://forklog.com/feed"),
+         ("Incrypted", "https://incrypted.com/feed/"), ("Bits.media", "https://bits.media/rss2/"), ("Cointelegraph", "https://cointelegraph.com/rss")]
 CATS = {"P2P": ["p2p", "п2п", "одноранг"],
         "Криптовалюты": ["крипт", "биткоин", "bitcoin", "usdt", "стейблкоин", "ethereum"],
         "Банки": ["банк"],
@@ -22,7 +23,8 @@ CATS = {"P2P": ["p2p", "п2п", "одноранг"],
         "Законодательство": ["законопроект", "госдум", "закон о", "федеральный закон"],
         "Биржи": ["бирж", "binance", "bybit", "okx"],
         "Платёжные системы": ["платежн", "платёжн", "сбп", "visa", "mastercard", "система «мир»"]}
-HINTS = {"115-ФЗ": "Тема финансового мониторинга: проверьте, меняются ли требования банков к операциям и документам.",
+GRAM_RE = re.compile(r"\bgram\b|\bgramm\b|toncoin|(?-i:\bTON\b)|the open network|telegram wallet|wallet в telegram|кошел[её]к telegram|\bграм\b", re.I)
+HINTS = {"Gram (TON)": "Цена GRAM может резко меняться. Перед сделкой сверьтесь с первоисточником и актуальным курсом.", "115-ФЗ": "Тема финансового мониторинга: проверьте, меняются ли требования банков к операциям и документам.",
          "161-ФЗ": "Касается правил национальной платёжной системы и переводов. Сверьтесь с первоисточником.",
          "P2P": "Может влиять на условия P2P-переводов. Оцените по первоисточнику.",
          "Банк России": "Решения и комментарии регулятора. Влияние зависит от ваших операций.",
@@ -69,7 +71,8 @@ def _parse(source, raw):
 
 def _categorize(i):
     blob = (i["title"] + " " + i["summary"]).lower()
-    return [c for c, kw in CATS.items() if any(k in blob for k in kw)]
+    cats = [c for c, kw in CATS.items() if any(k in blob for k in kw)]
+    return (["Gram (TON)"] if GRAM_RE.search(i["title"] + " " + i["summary"]) else []) + cats
 
 def refresh():
     items, errors, seen = [], [], set()

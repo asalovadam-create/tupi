@@ -64,6 +64,15 @@ h2.sec{margin:6px 0 14px;font-size:18px;font-weight:600}
 .bcard.big{margin:0 auto 10px}
 .rk i,.pill i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--ok)}.r1 i{background:var(--warn)}.r2 i{background:var(--bad)}
 .big{max-width:420px}.hide .money{filter:blur(9px)}
+.bcard.blocked{--c1:#3b3e45!important;--c2:#1b1d22!important;--ac:#cfd2d8!important;--chip1:#9a9aa2!important;--chip2:#5c5c63!important}
+.wid{grid-template-columns:repeat(auto-fit,minmax(320px,1fr));margin-bottom:20px}.wid .panel{margin:0}
+.wcard .wh{display:flex;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;margin-bottom:8px}
+.wv{font-size:28px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums}.wv small{font-size:13px;font-weight:500;letter-spacing:0;margin-left:6px}
+.wrows{margin:10px 0 6px}.wrows div{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:13.5px}.wrows span{color:var(--mut)}.wrows b{font-weight:600}.wrows small{font-weight:500;margin-left:4px}
+.spark{width:100%;height:44px;margin-top:8px}
+.p2cols{grid-template-columns:1.2fr 1fr;margin-bottom:16px}.p2cols .panel{margin:0}
+.rr{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px}.rr span{color:var(--mut)}.rr b{font-weight:600;text-align:right}
+.rbig{display:flex;justify-content:space-between;align-items:baseline;padding:14px 0;font-size:14px}.rbig b{font-size:24px;letter-spacing:-.02em}.rbig small{font-size:13px;font-weight:500}
 /* ---- Вкладки, таблицы, формы ---- */
 .tabs{display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--seg);box-shadow:inset 0 0 0 1px var(--line);overflow-x:auto;scrollbar-width:none;margin-bottom:16px;width:max-content;max-width:100%}.tabs::-webkit-scrollbar{display:none}
 .tabs .gbtn{flex:none;background:none;box-shadow:none;backdrop-filter:none;color:var(--mut);height:32px;padding:0 14px;font-size:13px}
@@ -95,6 +104,7 @@ label{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;font-weigh
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}.nact{display:flex;gap:8px;align-items:center}
 .tabbar{display:none}
 @media(max-width:860px){
+ .p2cols{grid-template-columns:1fr}
  .side{display:none}main{margin:0;padding:calc(16px + var(--safe-t)) 16px calc(100px + var(--safe-b))}
  .top h1{font-size:22px}.stats{grid-template-columns:1fr 1fr;gap:10px}.stat{padding:14px}.stat b{font-size:19px}.cards{grid-template-columns:1fr}
  .tabbar{display:flex;position:fixed;left:14px;right:14px;bottom:calc(12px + var(--safe-b));z-index:20;justify-content:space-around;align-items:center;padding:6px;border-radius:999px}

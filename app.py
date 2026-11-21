@@ -1,8 +1,8 @@
 import hashlib, re
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from flask import Flask, jsonify, request, send_from_directory
 from store import Store
-import news
+import news, rates, p2p
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 db = Store()
@@ -18,6 +18,8 @@ BANKS = [  # (id, название, цвет1, цвет2, акцент) — ст
  ("psb","Промсвязьбанк","#1b2a6b","#ff6a00","#ffffff"),("rosbank","Росбанк","#b0121b","#3b3b3b","#ffffff"),
  ("other","Другой банк","#2c3e50","#5d7b99","#ffffff")]
 BANK_MAP = {b[0]: b for b in BANKS}
+
+def now_msk(): return datetime.now(timezone(timedelta(hours=3))).replace(tzinfo=None)  # время в проекте считается по Москве
 
 def err(msg, code=400): return jsonify({"error": msg}), code
 
@@ -58,9 +60,52 @@ def senders_report(txs, d_from=None, d_to=None):
             "new": sum(1 for r in rows if r["new"]), "sum": round(sum(amounts), 2),
             "avg": round(sum(amounts) / len(amounts), 2) if amounts else 0, "max": max(amounts) if amounts else 0, "rows": rows}
 
-def risk(txs):
+def fast_out_share(txs):
+    """Какая доля поступлений ушла с карты в течение часа после получения."""
+    pool = [[parse_ts(t), t["amount"]] for t in sorted((t for t in txs if t["type"] == "in"), key=parse_ts)]
+    total = sum(p[1] for p in pool); used = 0.0
+    for o in sorted((t for t in txs if t["type"] == "out"), key=parse_ts):
+        left, ts = o["amount"], parse_ts(o)
+        for p in pool:
+            if left <= 0: break
+            if p[1] > 0 and p[0] <= ts and ts - p[0] <= timedelta(minutes=60):
+                x = min(p[1], left); p[1] -= x; left -= x; used += x
+    return used / total if total else 0.0
+
+def features(txs, at):
+    """Снимок активности карты за 7 суток до момента at (для обучения на блокировках)."""
+    tx = [t for t in txs if parse_ts(t) <= at]
+    inc = lambda since: [t for t in tx if t["type"] == "in" and parse_ts(t) > since]
+    i7, i1 = inc(at - timedelta(days=7)), inc(at - timedelta(days=1))
+    before = {t["sender"] for t in tx if t["type"] == "in" and parse_ts(t) <= at - timedelta(days=7)}
+    s7 = {t["sender"] for t in i7}
+    sin = sum(t["amount"] for t in i7)
+    sout = sum(t["amount"] for t in tx if t["type"] == "out" and parse_ts(t) > at - timedelta(days=7))
+    allin = [t for t in tx if t["type"] == "in"]
+    return {"in_ops_24h": len(i1), "in_sum_24h": round(sum(t["amount"] for t in i1), 2), "in_ops_7d": len(i7), "in_sum_7d": round(sin, 2),
+            "in_avg_7d": round(sin / len(i7), 2) if i7 else 0, "in_max_7d": max((t["amount"] for t in i7), default=0),
+            "senders_7d": len(s7), "new_senders_7d": len(s7 - before), "out_share_7d": round(min(sout / sin, 1.5), 3) if sin else 0,
+            "fast_out_share": round(fast_out_share(tx), 3),
+            "nodoc_share": round(sum(1 for t in allin if not t.get("doc") and not t.get("deal")) / len(allin), 3) if allin else 0}
+
+COUNT_KEYS = ("in_ops_24h", "in_sum_24h", "in_ops_7d", "in_sum_7d", "in_avg_7d", "in_max_7d", "senders_7d", "new_senders_7d")
+SHARE_KEYS = ("out_share_7d", "fast_out_share", "nodoc_share")
+
+def sim(a, b):
+    """Сходство двух снимков, 0..1. Показывает похожесть на ваш прошлый случай, а не вероятность блокировки."""
+    parts = []
+    for k in COUNT_KEYS:
+        x, y = a.get(k, 0), b.get(k, 0)
+        if max(x, y) > 0: parts.append(min(x, y) / max(x, y))
+    for k in SHARE_KEYS: parts.append(1 - min(abs(min(a.get(k, 0), 1) - min(b.get(k, 0), 1)), 1))
+    return sum(parts) / len(parts) if len(parts) >= 4 else 0.0
+
+def incidents_view():
+    return sorted(db.data.get("incidents", []), key=lambda i: i["at"], reverse=True)[:30]
+
+def risk(txs, card_id=None):
     """Прозрачная оценка необычности. Это НЕ вероятность блокировки и не гарантия безопасности."""
-    today = date.today()
+    today = now_msk().date()
     w = lambda a, b: [t for t in txs if t["type"] == "in" and str(today - timedelta(days=a)) <= t["date"] <= str(today - timedelta(days=b))]
     cur, prev = w(6, 0), w(13, 7)
     factors, pts = [], 0
@@ -92,12 +137,26 @@ def risk(txs):
     for t in inc: keys.setdefault((t["sender"], t["amount"], t["date"]), []).append(t)
     dup = sum(1 for v in keys.values() if len(v) > 1)
     if dup: add("Повторы", 1, f"Найдено групп одинаковых операций (тот же отправитель, сумма и день): {dup}. Проверьте, нет ли дублей.")
+    fo = fast_out_share(txs)
+    if len(inc) >= 2 and fo >= 0.8: add("Быстрый вывод", 2, f"{fo:.0%} поступлений ушло с карты в течение часа. Такое «транзитное» движение банки отслеживают особенно внимательно.")
+    elif len(inc) >= 2 and fo >= 0.5: add("Быстрый вывод", 1, f"{fo:.0%} поступлений ушло с карты в течение часа после получения.")
+    else: add("Быстрый вывод", 0, "Поступления не уходят с карты сразу целиком.")
+    card = find_card(card_id) if card_id else None
+    if card and card.get("status") != "blocked":
+        known = db.data.get("incidents", [])
+        best = max(((sim(features(txs, now_msk()), i["features"]), i) for i in known), key=lambda x: x[0], default=None)
+        if not best: add("Сходство с прошлыми блокировками", 0, "Блокировок в вашей истории пока нет. Отметьте кнопкой «Карта заблокирована» первый случай, и система начнёт сравнивать с ним.")
+        else:
+            sc, i = best
+            few = " Случаев мало, оценка ориентировочная." if len(known) < 3 else ""
+            add("Сходство с прошлыми блокировками", 2 if sc >= 0.8 else 1 if sc >= 0.6 else 0,
+                f"Активность за 7 суток похожа на {sc:.0%} на ситуацию перед блокировкой карты «{i['title']}» ({i['at'][:10]}). Записано случаев: {len(known)}.{few}")
     level = ["НИЗКИЙ", "ПОВЫШЕННЫЙ", "ВЫСОКИЙ"][pts]
     return {"level": level, "code": pts, "factors": factors,
             "note": "Оценка показывает необычность данных учёта и качество документации. Это не вероятность блокировки и не гарантия безопасности. Решения принимает банк."}
 
 def chart(txs, days=14):
-    today = date.today(); res = []
+    today = now_msk().date(); res = []
     for i in range(days - 1, -1, -1):
         d = str(today - timedelta(days=i))
         res.append({"d": d[5:], "in": round(sum(t["amount"] for t in txs if t["date"] == d and t["type"] == "in"), 2),
@@ -115,19 +174,19 @@ def banks(): return jsonify([{"id": b[0], "name": b[1], "c1": b[2], "c2": b[3], 
 
 @app.get("/api/summary")
 def summary():
-    today, cards = date.today(), db.data["cards"]; txs = db.data["tx"]
+    today, cards = now_msk().date(), db.data["cards"]; txs = db.data["tx"]
     inc = lambda a: sum(t["amount"] for t in txs if t["type"] == "in" and t["date"] >= str(today - timedelta(days=a)))
     ts = str(today)
     cards_out = []
     for c in cards:
-        r = risk(card_txs(c["id"]))
+        r = risk(card_txs(c["id"]), c["id"])
         cards_out.append({**c, **card_stats(c, card_txs(c["id"])), "risk": r["level"], "risk_code": r["code"]})
     return jsonify({"balance": round(sum(c["balance"] for c in cards_out), 2),
         "today_in": round(sum(t["amount"] for t in txs if t["type"] == "in" and t["date"] == ts), 2),
         "today_out": round(sum(t["amount"] for t in txs if t["type"] == "out" and t["date"] == ts), 2),
         "week_in": round(inc(6), 2), "month_in": round(inc(29), 2), "ops": len(txs),
         "senders": len({t["sender"] for t in txs if t["type"] == "in"}), "cards": len(cards),
-        "review": sum(1 for c in cards_out if c["risk_code"] >= 1), "chart": chart(txs), "list": cards_out})
+        "review": sum(1 for c in cards_out if c["risk_code"] >= 1 and c.get("status") != "blocked"), "blocked": sum(1 for c in cards if c.get("status") == "blocked"), "chart": chart(txs), "list": cards_out})
 
 @app.post("/api/cards")
 def add_card():
@@ -162,7 +221,7 @@ def card_detail(cid):
     if not c: return err("Не найдено", 404)
     txs = card_txs(cid)
     d_from, d_to = request.args.get("from"), request.args.get("to")
-    return jsonify({"card": c, "stats": card_stats(c, txs), "risk": risk(txs), "chart": chart(txs),
+    return jsonify({"card": c, "stats": card_stats(c, txs), "risk": risk(txs, cid), "incidents": incidents_view(), "chart": chart(txs),
         "senders": senders_report(txs, d_from, d_to), "tx": sorted(txs, key=parse_ts, reverse=True)})
 
 @app.post("/api/cards/<cid>/tx")
@@ -216,6 +275,62 @@ def news_fav():
     with db.lock:
         f = db.data.setdefault("fav_news", [])
         f.remove(link) if link in f else f.append(link); db.save()
+    return jsonify({"ok": True})
+
+@app.post("/api/cards/<cid>/block")
+def block_card(cid):
+    c, j = find_card(cid), request.get_json(silent=True) or {}
+    if not c: return err("Не найдено", 404)
+    if c.get("status") == "blocked": return err("Карта уже отмечена как заблокированная")
+    try: at = datetime.strptime((j.get("date") or now_msk().strftime("%Y-%m-%d")) + " " + (j.get("time") or now_msk().strftime("%H:%M")), "%Y-%m-%d %H:%M")
+    except ValueError: return err("Некорректные дата или время")
+    txs = card_txs(cid)
+    recent = sorted((t for t in txs if parse_ts(t) <= at), key=parse_ts)[-15:]
+    inc = {"id": db.new_id(), "card": cid, "title": c["title"], "bank": c["bank_name"], "at": at.strftime("%Y-%m-%d %H:%M"), "note": (j.get("note") or "")[:500],
+           "features": features(txs, at), "recent": [{k: t.get(k) for k in ("type", "amount", "date", "time", "sender_label", "sender_bank", "comment")} for t in recent]}
+    with db.lock:
+        c["status"], c["blocked_at"] = "blocked", inc["at"]
+        db.data.setdefault("incidents", []).append(inc); db.log("card_block", c["title"]); db.save()
+    return jsonify(inc), 201
+
+@app.post("/api/cards/<cid>/unblock")
+def unblock_card(cid):
+    c = find_card(cid)
+    if not c: return err("Не найдено", 404)
+    with db.lock:
+        c["status"] = "active"; c.pop("blocked_at", None); db.log("card_unblock", c["title"]); db.save()
+    return jsonify({"ok": True})
+
+@app.get("/api/rates")
+def rates_api(): return jsonify(rates.get_rates())
+
+@app.post("/api/p2p/calc")
+def p2p_calc():
+    try: return jsonify(p2p.calc(request.get_json(silent=True) or {}))
+    except ValueError as e: return err(str(e))
+
+@app.post("/api/p2p/deals")
+def p2p_add():
+    j = request.get_json(silent=True) or {}
+    try: r = p2p.calc(j)
+    except ValueError as e: return err(str(e))
+    d = {"id": db.new_id(), "at": now_msk().strftime("%Y-%m-%d %H:%M"), "note": (j.get("note") or "")[:200], **r}
+    with db.lock: db.data.setdefault("deals", []).append(d); db.log("deal_add", f"{r['profit']}"); db.save()
+    return jsonify(d), 201
+
+@app.get("/api/p2p/deals")
+def p2p_list():
+    deals = sorted(db.data.get("deals", []), key=lambda d: d["at"], reverse=True)
+    now = now_msk(); tot = lambda days: round(sum(d["profit"] for d in deals if (days is None or d["at"] >= (now - timedelta(days=days)).strftime("%Y-%m-%d %H:%M"))), 2)
+    return jsonify({"deals": deals, "today": round(sum(d["profit"] for d in deals if d["at"][:10] == str(now.date())), 2), "week": tot(7), "month": tot(30), "all": tot(None),
+                    "invested": round(sum(d["in"]["rub_in"] for d in deals), 2)})
+
+@app.delete("/api/p2p/deals/<did>")
+def p2p_del(did):
+    with db.lock:
+        d = next((x for x in db.data.get("deals", []) if x["id"] == did), None)
+        if not d: return err("Не найдено", 404)
+        db.data["deals"].remove(d); db.log("deal_delete", did); db.save()
     return jsonify({"ok": True})
 
 @app.get("/api/audit")
