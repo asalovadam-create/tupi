@@ -99,17 +99,17 @@ function spark(v,color){if(!v||v.length<2)return '';const mn=Math.min(...v),mx=M
 let RATES=null;
 async function loadRates(){const box=$('#rates');if(!box)return;
  try{RATES=await api('/api/rates')}catch(e){box.innerHTML='<div class="glass panel empty">Курсы сейчас недоступны</div>';return}
- const u=RATES.usd,g=RATES.gram,na=t=>`<div class="glass panel wcard"><div class="wh">${t}</div><p class="mut">Источник временно недоступен</p></div>`;
- const usd=u.error?na('Доллар США · ЦБ РФ'):`<div class="glass panel wcard"><div class="wh"><span>Доллар США · ЦБ РФ</span><span class="mut">на ${esc(u.today.date)}</span></div>
+ const u=RATES.usd,g=RATES.gram,na=(t,x)=>`<div class="glass panel wcard"><div class="wh">${t}</div><p class="mut">Источник временно недоступен</p>${(x.detail||[]).map(d=>`<p class="note" style="margin:2px 0">${esc(d)}</p>`).join("")}</div>`;
+ const usd=u.error?na('Доллар США · ЦБ РФ',u):`<div class="glass panel wcard"><div class="wh"><span>Доллар США · ЦБ РФ</span><span class="mut">на ${esc(u.today.date)}</span></div>
   <div class="wv">${fmtN(u.today.value)} ₽ <small class="${cls(u.chg_day)}">${sgn(u.chg_day)} (${sgn(u.chg_day_pct)}%) к вчера</small></div>
   <div class="wrows"><div><span>Вчера, ${esc(u.yesterday.date)}</span><b>${fmtN(u.yesterday.value)} ₽</b></div>
   <div><span>Неделю назад, ${esc(u.week.date)}</span><b>${fmtN(u.week.value)} ₽ <small class="${cls(u.chg_week)}">${sgn(u.chg_week)} (${sgn(u.chg_week_pct)}%)</small></b></div>
   ${u.next?`<div><span>Завтра по ЦБ, ${esc(u.next.date)}</span><b>${fmtN(u.next.value)} ₽</b></div>`:''}</div>${spark(u.series,'#5aa8ff')}<p class="note" style="margin:6px 0 0">${esc(u.note)}</p></div>`;
  const pc=v=>v==null?'—':sgn(v)+'%';
- const gm=g.error?na('GRAM (бывш. TON)'):`<div class="glass panel wcard"><div class="wh"><span>GRAM (бывш. TON)</span><span class="mut">CoinGecko</span></div>
+ const gm=g.error?na('GRAM (бывш. TON)',g):`<div class="glass panel wcard"><div class="wh"><span>GRAM (бывш. TON)</span><span class="mut">${esc(g.source||"")}</span></div>
   <div class="wv">${fmtN(g.rub)} ₽ <small class="mut">≈ ${fmtN(g.usd,3)} $</small></div>
   <div class="wrows"><div><span>За 24 часа</span><b class="${cls(g.ch24)}">${pc(g.ch24)}</b></div><div><span>За 7 дней</span><b class="${cls(g.ch7d)}">${pc(g.ch7d)}</b></div></div>${spark(g.series,'#30d158')}
-  <p class="note" style="margin:6px 0 0">Рыночный курс. Цена продажи в Telegram Wallet может отличаться.</p></div>`;
+  <p class="note" style="margin:6px 0 0">${g.rub_calc?"Рубли пересчитаны по курсу ЦБ. ":""}Рыночный курс. Цена продажи в Telegram Wallet может отличаться.</p></div>`;
  box.innerHTML=usd+gm}
 
 function blockModal(cid){const n=new Date(),p=x=>String(x).padStart(2,'0');
